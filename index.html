@@ -2,20 +2,111 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Recherche YouTube</title>
+  <title>Recherche YouTube - Thème sombre</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; }
-    input { width: 70%; padding: 8px; }
-    button { padding: 8px 12px; }
-    .video { cursor: pointer; margin: 10px 0; display: flex; align-items: center; gap: 10px; }
-    .video img { width: 120px; height: 90px; object-fit: cover; }
-    #player iframe { margin-top: 20px; width: 100%; height: 360px; }
+    /* Thème sombre */
+    body {
+      background: #121212;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 0 15px 50px;
+    }
+    input, select, button {
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      padding: 8px 12px;
+      font-size: 1rem;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+    button:hover {
+      background: #444;
+      cursor: pointer;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    /* Grille pour résultats */
+    #results {
+      display: grid;
+      grid-template-columns: repeat(auto-fit,minmax(280px,1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .video {
+      background: #1e1e1e;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s;
+      height: 100%;
+    }
+    .video:hover {
+      background: #333;
+    }
+    .video img {
+      width: 100%;
+      object-fit: cover;
+      height: 160px;
+      flex-shrink: 0;
+    }
+    .video span {
+      padding: 10px;
+      font-size: 0.9rem;
+      flex-grow: 1;
+      color: #ccc;
+    }
+
+    /* Lecteur */
+    #player {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #000;
+      padding: 10px;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.7);
+      display: flex;
+      justify-content: center;
+      z-index: 999;
+    }
+    #player iframe {
+      width: 80vw;
+      height: 45vw;
+      max-width: 900px;
+      max-height: 506px;
+      border: none;
+      border-radius: 6px;
+    }
+
+    /* Form container */
+    #searchContainer {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
   </style>
 </head>
 <body>
-  <h1>Recherche YouTube</h1>
-  <input type="text" id="searchInput" placeholder="Tape ta recherche..." />
-  <button onclick="searchYouTube()">Rechercher</button>
+  <h1>Recherche YouTube (Thème sombre)</h1>
+
+  <div id="searchContainer">
+    <input type="text" id="searchInput" placeholder="Tape ta recherche..." />
+    <select id="searchType">
+      <option value="video" selected>Vidéo</option>
+      <option value="channel">Chaîne</option>
+      <option value="playlist">Playlist</option>
+      <option value="videoShort">Short</option>
+    </select>
+    <button onclick="searchYouTube()">Rechercher</button>
+  </div>
 
   <div id="results"></div>
   <div id="player"></div>
@@ -25,39 +116,68 @@
 
     function searchYouTube() {
       const query = document.getElementById("searchInput").value.trim();
+      const typeSelect = document.getElementById("searchType").value;
+
       if (!query) return alert("Entre un mot-clé.");
 
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(query)}&key=${apiKey}`)
+      let typeParam = "";
+      if(typeSelect === "video") typeParam = "video";
+      else if(typeSelect === "channel") typeParam = "channel";
+      else if(typeSelect === "playlist") typeParam = "playlist";
+      else if(typeSelect === "videoShort") typeParam = "video";
+
+      // Pour short, on filtre via q paramètre & videoDuration=short
+      let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=${typeParam}&maxResults=12&q=${encodeURIComponent(query)}&key=${apiKey}`;
+      if(typeSelect === "videoShort") url += "&videoDuration=short";
+
+      fetch(url)
         .then(res => res.json())
         .then(data => {
-          if (!data.items || data.items.length === 0) {
-            document.getElementById("results").innerHTML = "Aucun résultat.";
-            document.getElementById("player").innerHTML = "";
-            return;
-          }
-
           const results = document.getElementById("results");
           results.innerHTML = "";
           document.getElementById("player").innerHTML = "";
 
+          if (!data.items || data.items.length === 0) {
+            results.innerHTML = "<p>Aucun résultat.</p>";
+            return;
+          }
+
           data.items.forEach(item => {
-            const videoId = item.id.videoId;
-            const title = item.snippet.title;
-            const thumbnail = item.snippet.thumbnails.default.url;
+            const id = item.id;
+            const snippet = item.snippet;
+            let videoId = "";
+            let thumbnail = "";
+            let title = snippet.title;
+            let clickHandler;
+
+            if(id.kind === "youtube#video") {
+              videoId = id.videoId;
+              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
+              clickHandler = () => {
+                document.getElementById("player").innerHTML =
+                  `<iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+              };
+            } else if(id.kind === "youtube#channel") {
+              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
+              clickHandler = () => alert("Pas de lecteur pour chaînes. Ouvre la chaîne :\nhttps://www.youtube.com/channel/" + id.channelId);
+              title += " (clic pour lien)";
+            } else if(id.kind === "youtube#playlist") {
+              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
+              clickHandler = () => alert("Pas de lecteur pour playlists. Ouvre la playlist :\nhttps://www.youtube.com/playlist?list=" + id.playlistId);
+              title += " (clic pour lien)";
+            }
 
             const div = document.createElement("div");
             div.className = "video";
             div.innerHTML = `<img src="${thumbnail}" alt="Miniature"><span>${title}</span>`;
-            div.onclick = () => {
-              document.getElementById("player").innerHTML =
-                `<iframe src="https://www.youtube.com/embed/${videoId}" frameborder="0" allowfullscreen></iframe>`;
-              window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            };
+            div.onclick = clickHandler;
+
             results.appendChild(div);
           });
         })
         .catch(() => {
-          document.getElementById("results").innerHTML = "Erreur lors de la recherche.";
+          document.getElementById("results").innerHTML = "<p>Erreur lors de la recherche.</p>";
           document.getElementById("player").innerHTML = "";
         });
     }
