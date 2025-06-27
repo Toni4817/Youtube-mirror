@@ -4,14 +4,13 @@
   <meta charset="UTF-8" />
   <title>Recherche YouTube - Thème sombre</title>
   <style>
-    /* Thème sombre */
     body {
       background: #121212;
       color: #eee;
       font-family: Arial, sans-serif;
       max-width: 900px;
       margin: 20px auto;
-      padding: 0 15px 50px;
+      padding: 0 15px 80px;
     }
     input, select, button {
       background: #222;
@@ -30,8 +29,6 @@
       text-align: center;
       margin-bottom: 20px;
     }
-
-    /* Grille pour résultats */
     #results {
       display: grid;
       grid-template-columns: repeat(auto-fit,minmax(280px,1fr));
@@ -63,8 +60,6 @@
       flex-grow: 1;
       color: #ccc;
     }
-
-    /* Lecteur */
     #player {
       position: fixed;
       bottom: 0;
@@ -85,13 +80,23 @@
       border: none;
       border-radius: 6px;
     }
-
-    /* Form container */
     #searchContainer {
       text-align: center;
       margin-bottom: 10px;
     }
-
+    #backButton {
+      background: #444;
+      border: none;
+      padding: 6px 12px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      color: #eee;
+      cursor: pointer;
+      display: none;
+    }
+    #backButton:hover {
+      background: #666;
+    }
   </style>
 </head>
 <body>
@@ -108,17 +113,60 @@
     <button onclick="searchYouTube()">Rechercher</button>
   </div>
 
+  <button id="backButton" onclick="goBack()">← Retour aux résultats</button>
+
   <div id="results"></div>
   <div id="player"></div>
 
   <script>
     const apiKey = "AIzaSyBSa5xy9wUggzfOuTX8yx5FttkcBX8WTl4";
+    let lastSearch = null;  
+    let lastView = null; // 'search', 'channelVideos', 'playlistVideos'
 
-    function searchYouTube() {
+    function searchYouTube(channelId = null, channelName = null, playlistId = null, playlistTitle = null) {
+      let url = "";
+      const results = document.getElementById("results");
+      const player = document.getElementById("player");
+      const backButton = document.getElementById("backButton");
+      const searchContainer = document.getElementById("searchContainer");
+
+      if(channelId) {
+        // Vidéos d'une chaîne
+        lastView = 'channelVideos';
+        backButton.style.display = "inline-block";
+        searchContainer.style.display = "none";
+        results.innerHTML = `<p>Vidéos de la chaîne <strong>${channelName}</strong> :</p>`;
+        url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&order=date&maxResults=12&key=${apiKey}`;
+        fetch(url).then(res => res.json()).then(data => {
+          displayVideos(data.items, results, player);
+        }).catch(() => errorResults(results, player));
+        return;
+      }
+
+      if(playlistId) {
+        // Vidéos d'une playlist
+        lastView = 'playlistVideos';
+        backButton.style.display = "inline-block";
+        searchContainer.style.display = "none";
+        results.innerHTML = `<p>Vidéos de la playlist <strong>${playlistTitle}</strong> :</p>`;
+        url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=12&key=${apiKey}`;
+        fetch(url).then(res => res.json()).then(data => {
+          displayPlaylistVideos(data.items, results, player);
+        }).catch(() => errorResults(results, player));
+        return;
+      }
+
+      // Recherche normale
       const query = document.getElementById("searchInput").value.trim();
       const typeSelect = document.getElementById("searchType").value;
+      if(!query) return alert("Entre un mot-clé.");
 
-      if (!query) return alert("Entre un mot-clé.");
+      lastSearch = {query: query, type: typeSelect};
+      lastView = 'search';
+      backButton.style.display = "none";
+      searchContainer.style.display = "block";
+      player.innerHTML = "";
+      results.innerHTML = "";
 
       let typeParam = "";
       if(typeSelect === "video") typeParam = "video";
@@ -126,60 +174,133 @@
       else if(typeSelect === "playlist") typeParam = "playlist";
       else if(typeSelect === "videoShort") typeParam = "video";
 
-      // Pour short, on filtre via q paramètre & videoDuration=short
-      let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=${typeParam}&maxResults=12&q=${encodeURIComponent(query)}&key=${apiKey}`;
+      url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=${typeParam}&maxResults=12&q=${encodeURIComponent(query)}&key=${apiKey}`;
       if(typeSelect === "videoShort") url += "&videoDuration=short";
 
-      fetch(url)
-        .then(res => res.json())
-        .then(data => {
-          const results = document.getElementById("results");
-          results.innerHTML = "";
-          document.getElementById("player").innerHTML = "";
+      fetch(url).then(res => res.json()).then(data => {
+        if(!data.items || data.items.length === 0) {
+          results.innerHTML = "<p>Aucun résultat.</p>";
+          player.innerHTML = "";
+          return;
+        }
+        data.items.forEach(item => {
+          const div = document.createElement("div");
+          div.className = "video";
 
-          if (!data.items || data.items.length === 0) {
-            results.innerHTML = "<p>Aucun résultat.</p>";
-            return;
+          if(item.id.kind === "youtube#video") {
+            const videoId = item.id.videoId;
+            const thumb = item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url;
+            div.innerHTML = `<img src="${thumb}" alt="Miniature"><span>${item.snippet.title}</span>`;
+            div.onclick = () => {
+              player.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
+              window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+            };
           }
-
-          data.items.forEach(item => {
-            const id = item.id;
-            const snippet = item.snippet;
-            let videoId = "";
-            let thumbnail = "";
-            let title = snippet.title;
-            let clickHandler;
-
-            if(id.kind === "youtube#video") {
-              videoId = id.videoId;
-              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
-              clickHandler = () => {
-                document.getElementById("player").innerHTML =
-                  `<iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-              };
-            } else if(id.kind === "youtube#channel") {
-              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
-              clickHandler = () => alert("Pas de lecteur pour chaînes. Ouvre la chaîne :\nhttps://www.youtube.com/channel/" + id.channelId);
-              title += " (clic pour lien)";
-            } else if(id.kind === "youtube#playlist") {
-              thumbnail = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
-              clickHandler = () => alert("Pas de lecteur pour playlists. Ouvre la playlist :\nhttps://www.youtube.com/playlist?list=" + id.playlistId);
-              title += " (clic pour lien)";
-            }
-
-            const div = document.createElement("div");
-            div.className = "video";
-            div.innerHTML = `<img src="${thumbnail}" alt="Miniature"><span>${title}</span>`;
-            div.onclick = clickHandler;
-
-            results.appendChild(div);
-          });
-        })
-        .catch(() => {
-          document.getElementById("results").innerHTML = "<p>Erreur lors de la recherche.</p>";
-          document.getElementById("player").innerHTML = "";
+          else if(item.id.kind === "youtube#channel") {
+            const channelId = item.id.channelId;
+            const thumb = item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url;
+            div.innerHTML = `<img src="${thumb}" alt="Miniature"><span>${item.snippet.channelTitle} (clic pour ses vidéos)</span>`;
+            div.onclick = () => {
+              searchYouTube(channelId, item.snippet.channelTitle);
+            };
+          }
+          else if(item.id.kind === "youtube#playlist") {
+            const playlistId = item.id.playlistId;
+            const thumb = item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url;
+            div.innerHTML = `<img src="${thumb}" alt="Miniature"><span>${item.snippet.title} (clic pour sa playlist)</span>`;
+            div.onclick = () => {
+              searchYouTube(null, null, playlistId, item.snippet.title);
+            };
+          }
+          results.appendChild(div);
         });
+      }).catch(() => errorResults(results, player));
+    }
+
+    function displayVideos(items, container, player) {
+      if(!items || items.length === 0) {
+        container.innerHTML += "<p>Aucune vidéo trouvée.</p>";
+        player.innerHTML = "";
+        return;
+      }
+      items.forEach(item => {
+        if(item.id.kind !== "youtube#video") return;
+        const videoId = item.id.videoId;
+        const thumb = item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url;
+        const title = item.snippet.title;
+        const div = document.createElement("div");
+        div.className = "video";
+        div.innerHTML = `<img src="${thumb}" alt="Miniature"><span>${title}</span>`;
+        div.onclick = () => {
+          player.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
+          window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+        };
+        container.appendChild(div);
+      });
+    }
+
+    function displayPlaylistVideos(items, container, player) {
+      if(!items || items.length === 0) {
+        container.innerHTML += "<p>Aucune vidéo trouvée dans cette playlist.</p>";
+        player.innerHTML = "";
+        return;
+      }
+      items.forEach(item => {
+        const snippet = item.snippet;
+        if(!snippet.resourceId || snippet.resourceId.kind !== "youtube#video") return;
+        const videoId = snippet.resourceId.videoId;
+        const thumb = snippet.thumbnails.high?.url || snippet.thumbnails.default.url;
+        const title = snippet.title;
+        const div = document.createElement("div");
+        div.className = "video";
+        div.innerHTML = `<img src="${thumb}" alt="Miniature"><span>${title}</span>`;
+        div.onclick = () => {
+          player.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
+          window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+        };
+        container.appendChild(div);
+      });
+    }
+
+    function errorResults(results, player) {
+      results.innerHTML = "<p>Erreur lors de la recherche.</p>";
+      player.innerHTML = "";
+    }
+
+    function goBack() {
+      const backButton = document.getElementById("backButton");
+      const searchContainer = document.getElementById("searchContainer");
+      const player = document.getElementById("player");
+      const results = document.getElementById("results");
+      if(lastView === 'search' && lastSearch) {
+        backButton.style.display = "none";
+        searchContainer.style.display = "block";
+        player.innerHTML = "";
+        results.innerHTML = "";
+        document.getElementById("searchInput").value = lastSearch.query;
+        document.getElementById("searchType").value = lastSearch.type;
+        searchYouTube();
+      } else if(lastView === 'channelVideos' && lastSearch) {
+        // Retour aux résultats recherche normale
+        backButton.style.display = "none";
+        searchContainer.style.display = "block";
+        player.innerHTML = "";
+        results.innerHTML = "";
+        document.getElementById("searchInput").value = lastSearch.query;
+        document.getElementById("searchType").value = lastSearch.type;
+        lastView = 'search';
+        searchYouTube();
+      } else if(lastView === 'playlistVideos' && lastSearch) {
+        // Retour aux résultats recherche normale
+        backButton.style.display = "none";
+        searchContainer.style.display = "block";
+        player.innerHTML = "";
+        results.innerHTML = "";
+        document.getElementById("searchInput").value = lastSearch.query;
+        document.getElementById("searchType").value = lastSearch.type;
+        lastView = 'search';
+        searchYouTube();
+      }
     }
   </script>
 </body>
